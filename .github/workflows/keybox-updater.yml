@@ -1,0 +1,79 @@
+name: Keybox Auto Updater + Checker
+
+on:
+  schedule:
+    - cron: '0 3 * * *'     # 每天北京时间上午11点运行
+  workflow_dispatch:        # 支持手动触发
+
+jobs:
+  update-and-check-keybox:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl wget xxd base64 python3 python3-pip
+          pip3 install requests cryptography
+
+      - name: 下载 check.py 和 res 目录
+        run: |
+          mkdir -p res
+          curl -L -o check.py https://raw.githubusercontent.com/purainity/keybox-tools/main/check.py
+          curl -L -o res/google.pem https://raw.githubusercontent.com/purainity/keybox-tools/main/res/google.pem
+          curl -L -o res/aosp_ec.pem https://raw.githubusercontent.com/purainity/keybox-tools/main/res/aosp_ec.pem
+          curl -L -o res/aosp_rsa.pem https://raw.githubusercontent.com/purainity/keybox-tools/main/res/aosp_rsa.pem
+          curl -L -o res/knox.pem https://raw.githubusercontent.com/purainity/keybox-tools/main/res/knox.pem
+          curl -L -o res/status.json https://raw.githubusercontent.com/purainity/keybox-tools/main/res/status.json
+          chmod +x check.py
+
+      - name: 获取 Yuri Keybox
+        run: |
+          echo "=== 获取 Yuri 来源 ==="
+          curl -fsSL https://raw.githubusercontent.com/Yurii0307/yurikey/main/key | base64 -d > keybox_yuri.xml || echo "Yuri 获取失败"
+          echo "Yuri 来源完成"
+
+      - name: 获取 MeowDump Keybox
+        run: |
+          echo "=== 获取 MeowDump 来源 ==="
+          curl -fsSL https://raw.githubusercontent.com/MeowDump/MeowDump/main/NullVoid/OptimusPrime -o temp.bin
+          for i in {1..10}; do base64 -d temp.bin > temp2.bin 2>/dev/null || true; mv temp2.bin temp.bin; done
+          xxd -r -p temp.bin > temp2.bin 2>/dev/null || true
+          tr 'A-Za-z' 'N-ZA-Mn-za-m' < temp2.bin > keybox_meow.xml
+          rm -f temp.bin temp2.bin
+          echo "MeowDump 来源完成"
+
+      - name: 获取 TrickyAddon Keybox
+        run: |
+          echo "=== 获取 TrickyAddon 来源 ==="
+          curl -fsSL https://raw.githubusercontent.com/KOWX712/Tricky-Addon-Update-Target-List/keybox/.extra -o temp.hex
+          xxd -r -p temp.hex > temp.b64
+          base64 -d temp.b64 > keybox_tricky.xml
+          rm -f temp.hex temp.b64
+          echo "TrickyAddon 来源完成"
+
+      - name: 执行检查（全部保留）
+        run: |
+          echo "=== 开始检查所有 keybox ==="
+          python3 check.py . > check_report.txt 2>&1 || true
+          echo "检查完成，报告已生成"
+
+      - name: 列出所有生成的文件
+        run: |
+          ls -lh *.xml check_report.txt
+          echo "=== 检查报告预览 ==="
+          cat check_report.txt | head -n 50
+
+      - name: 提交所有文件
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add *.xml check_report.txt
+          git commit -m "Update keyboxes + check report - $(date +'%Y-%m-%d %H:%M UTC')" || echo "No changes to commit"
+          git push
