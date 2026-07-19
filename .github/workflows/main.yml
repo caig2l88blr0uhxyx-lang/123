@@ -1,0 +1,66 @@
+name: 获取最新 keybox.xml
+
+on:
+  # 手动触发（点击 Actions 页面上的 "Run workflow" 按钮）
+  workflow_dispatch:
+  # 定时触发（每天北京时间早上 8 点运行一次，你可以按需修改）
+  schedule:
+    - cron: '0 0 * * *'   # UTC 0点 = 北京时间 8 点
+
+jobs:
+  fetch-keybox:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 如果需要 push 回仓库，请保留此项
+    steps:
+      - name: 检出当前仓库（用于后续提交）
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装系统依赖
+        run: |
+          sudo apt update
+          sudo apt install -y curl wget xxd git
+
+      - name: 克隆 keybox-tools
+        run: |
+          git clone https://github.com/purainity/keybox-tools.git
+          cd keybox-tools
+          chmod +x *.sh check.py
+
+      - name: 安装 Python 依赖
+        run: |
+          pip install requests cryptography
+
+      - name: 获取 keybox.xml（从 yuri.sh 来源，你也可以改成 MeowDump 或 TrickyAddon）
+        run: |
+          cd keybox-tools
+          bash yuri.sh ./keybox.xml   # 默认使用 yuri.sh，如需换源，修改这一行
+
+      - name: 检查 keybox.xml 有效性
+        run: |
+          cd keybox-tools
+          python3 check.py ./keybox.xml || true   # 即使无效也不中断流程，方便你查看报告
+
+      - name: 上传 keybox.xml 作为 Artifact（推荐）
+        uses: actions/upload-artifact@v4
+        with:
+          name: keybox-xml
+          path: keybox-tools/keybox.xml
+          retention-days: 30   # 保留30天，你可以改
+
+      # ---- 以下步骤为**可选**，将文件直接推送到你的仓库（请谨慎使用）----
+      # 注意：私钥会暴露在仓库历史中，若非私有仓库，强烈不建议开启！
+      - name: 提交 keybox.xml 到仓库（可选，默认注释掉）
+        if: false   # 改为 true 以启用
+        run: |
+          cp keybox-tools/keybox.xml ./
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add keybox.xml
+          git commit -m "更新 keybox.xml [skip ci]" || echo "没有变化"
+          git push
