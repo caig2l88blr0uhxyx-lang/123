@@ -12,60 +12,42 @@ jobs:
       - name: 1. 安装 XFCE 桌面与 XRDP 服务
         run: |
           sudo apt-get update -y
-          # 安装轻量级桌面 XFCE4 和 RDP 服务端 xrdp
           sudo apt-get install -y xfce4 xfce4-goodies xrdp
-          
-          # 配置系统级默认桌面环境
-          echo "startxfce4" | sudo tee /etc/xrdp/startwm.sh.bak
           echo "startxfce4" | sudo tee /etc/skel/.xsession
           sudo sed -i 's/^allowed_users=.*/allowed_users=anybody/' /etc/X11/Xwrapper.config
+          sudo systemctl enable --now xrdp
 
       - name: 2. 开启 Root 登录并设置简单密码
         run: |
-          # 1. 设置 root 密码为 123
           echo "root:123" | sudo chpasswd
-          
-          # 2. 强制允许 root 用户通过 xrdp 远程登录
           sudo sed -i 's/AllowRootLogin=false/AllowRootLogin=true/' /etc/xrdp/sesman.ini
-          # 如果配置项不存在，则直接追加
           sudo grep -q "AllowRootLogin=true" /etc/xrdp/sesman.ini || echo "AllowRootLogin=true" | sudo tee -a /etc/xrdp/sesman.ini
-
-          # 3. 绕过 PAM 的 root 登录限制（某些系统版本会拦截）
           sudo sed -i 's/auth required pam_succeed_if.so user != root quiet_success/#&/' /etc/pam.d/xrdp-sesman || true
-
-          # 4. 配置 root 的桌面启动项
           echo "startxfce4" | sudo tee /root/.xsession
           sudo chmod +x /root/.xsession
-          
-          # 5. 重启 xrdp 服务使配置生效
           sudo systemctl restart xrdp
 
       - name: 3. 安装并连接 Tailscale
         env:
           TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          # 安装 Tailscale
           curl -fsSL https://tailscale.com/install.sh | sh
           
-          # 连接网络（使用修正后的 Linux 变量语法，保留固定主机名和临时节点）
-          sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="github-rdp-server" --ephemeral
+          # 注意这里去掉了 --ephemeral
+          sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="github-rdp-server"
           
           echo "=========================================="
           echo "  >>> Ubuntu RDP SERVER IS READY! <<<"
           echo "  Connect to   : github-rdp-server"
           echo "  Username     : root"
           echo "  Password     : 123"
-          echo "  Desktop      : XFCE4"
+          echo "  >> 不用了请直接去 GitHub 页面点击 Cancel workflow 结束任务 <<"
           echo "=========================================="
 
-      - name: 4. 保活 (约 5 小时 40 分钟)
+      - name: 4. 保活 (无限挂机)
         run: |
-          for ((i=1; i<=340; i++)); do
+          # Linux 下的死循环
+          while true; do
               sleep 60
-              echo "[$i/340] Ubuntu Server running as root..."
+              echo "Server is running, waiting for you to cancel..."
           done
-
-      - name: 5. 清理 Tailscale 节点
-        if: always()
-        run: |
-          sudo tailscale logout
